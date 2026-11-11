@@ -145,10 +145,17 @@
     location.reload();
   });
 
-  function findIframe() {
-    var frames = document.querySelectorAll('iframe');
-    for (var i = 0; i < frames.length; i++) {
-      if (!preview.contains(frames[i]) || frames[i].src) return frames[i];
+  // Search the page and any open shadow roots (widgets often hide their iframe there)
+  function findIframe(root) {
+    root = root || document;
+    var f = root.querySelector('iframe');
+    if (f) return f;
+    var all = root.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].shadowRoot) {
+        var inner = findIframe(all[i].shadowRoot);
+        if (inner) return inner;
+      }
     }
     return null;
   }
@@ -197,11 +204,15 @@
       $('r-iframe-src').textContent = f.getAttribute('src') || f.src || '-';
       return true;
     }
-    var obs = new MutationObserver(function () { if (report()) obs.disconnect(); });
-    obs.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(function () {
-      if (!report()) setStatus('r-iframe', 'Not found after 6s', 'bad');
-    }, 6000);
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      if (report()) { clearInterval(timer); return; }
+      if (tries >= 12) {
+        clearInterval(timer);
+        setStatus('r-iframe', 'Not found (may be in a closed shadow DOM, check the page visually)', 'warn');
+      }
+    }, 500);
   }
 
   var saved = load();
