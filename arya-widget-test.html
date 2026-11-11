@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Widget Script Tester</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #111827;
+    color: #e5e7eb;
+    margin: 0;
+    padding: 24px;
+    line-height: 1.5;
+  }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .card {
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 16px;
+    max-width: 720px;
+  }
+  .card h2 {
+    font-size: 13px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 10px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 120px;
+    background: #0b1220;
+    color: #d1fae5;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    padding: 12px;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+    resize: vertical;
+  }
+  .btn-row { display: flex; gap: 10px; margin-top: 12px; }
+  button {
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  button:hover { background: #1d4ed8; }
+  button.secondary { background: #374151; }
+  button.secondary:hover { background: #4b5563; }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 6px 0;
+    font-size: 14px;
+    border-bottom: 1px solid #2b3544;
+  }
+  .row:last-child { border-bottom: none; }
+  .label { color: #9ca3af; white-space: nowrap; }
+  .val { text-align: right; word-break: break-all; }
+  code { font-family: Consolas, monospace; font-size: 13px; }
+  .ok { color: #86efac; }
+  .bad { color: #fca5a5; }
+  .warn { color: #fcd34d; }
+  .note { font-size: 13px; color: #9ca3af; }
+  #preview:empty::before {
+    content: "Rendered non-script HTML (divs, iframes) will appear here. Widgets usually add their own floating button.";
+    color: #6b7280;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Widget Script Tester</h1>
+
+<div class="card">
+  <h2>Paste script / embed code</h2>
+  <textarea id="embed-input" placeholder='<script src="https://example.com/widget.js" data-widget-key="..." defer></script>'><script src="https://arya.alchotech.com/widget/v1/arya.js" data-widget-key="wgt_c8dbb45e9cebc1d3492c8a4c" data-primary-color="#BED60A" defer></script></textarea>
+  <div class="btn-row">
+    <button id="render-btn">Render</button>
+    <button id="clear-btn" class="secondary">Clear</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Result</h2>
+  <div class="row"><span class="label">Page origin</span><code class="val" id="r-origin">-</code></div>
+  <div class="row"><span class="label">Script src</span><code class="val" id="r-src">-</code></div>
+  <div class="row"><span class="label">Widget key</span><code class="val" id="r-key">-</code></div>
+  <div class="row"><span class="label">Script loaded</span><span class="val warn" id="r-script">not rendered yet</span></div>
+  <div class="row"><span class="label">iframe injected</span><span class="val warn" id="r-iframe">not rendered yet</span></div>
+  <div class="row"><span class="label">iframe src</span><code class="val" id="r-iframe-src">-</code></div>
+</div>
+
+<div class="card note">
+  Check DevTools → Console too. A <code>frame-ancestors</code> error means this page's origin isn't
+  allowed for the widget key. The Arya key above only allows
+  <code>https://responsive-checker.netlify.app</code>, so host this page there. Opening it from disk
+  (<code>file://</code>) will also fail.
+</div>
+
+<div class="card">
+  <h2>Preview</h2>
+  <div id="preview"></div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'widget-tester-input';
+  var input = document.getElementById('embed-input');
+  var preview = document.getElementById('preview');
+
+  function $(id) { return document.getElementById(id); }
+  function setStatus(id, text, cls) {
+    var el = $(id);
+    el.textContent = text;
+    el.className = 'val ' + (cls || '');
+  }
+  function store(v) { try { sessionStorage.setItem(KEY, v); } catch (e) {} }
+  function load() { try { return sessionStorage.getItem(KEY); } catch (e) { return null; } }
+  function drop() { try { sessionStorage.removeItem(KEY); } catch (e) {} }
+
+  $('r-origin').textContent = location.origin;
+
+  // Render = save input and reload, so each test starts from a clean page
+  $('render-btn').addEventListener('click', function () {
+    if (!input.value.trim()) {
+      setStatus('r-script', 'nothing to render', 'bad');
+      return;
+    }
+    store(input.value);
+    location.reload();
+  });
+  $('clear-btn').addEventListener('click', function () {
+    drop();
+    location.reload();
+  });
+
+  function findIframe() {
+    var frames = document.querySelectorAll('iframe');
+    for (var i = 0; i < frames.length; i++) {
+      if (!preview.contains(frames[i]) || frames[i].src) return frames[i];
+    }
+    return null;
+  }
+
+  function render(code) {
+    input.value = code;
+    var tpl = document.createElement('template');
+    tpl.innerHTML = code;
+
+    var scripts = tpl.content.querySelectorAll('script');
+    var first = scripts[0];
+    if (first) {
+      $('r-src').textContent = first.getAttribute('src') || '(inline script)';
+      $('r-key').textContent = first.getAttribute('data-widget-key') || '-';
+      setStatus('r-script', 'loading…', 'warn');
+    } else {
+      setStatus('r-script', 'no <script> in input', 'warn');
+    }
+    setStatus('r-iframe', 'waiting…', 'warn');
+
+    // Insert non-script nodes into the preview area
+    var scriptNodes = [];
+    Array.prototype.slice.call(tpl.content.childNodes).forEach(function (n) {
+      if (n.nodeType === 1 && n.tagName === 'SCRIPT') scriptNodes.push(n);
+      else preview.appendChild(n);
+    });
+    // Nested scripts inside other elements also need re-creating to execute
+    preview.querySelectorAll('script').forEach(function (s) { scriptNodes.push(s); s.remove(); });
+
+    scriptNodes.forEach(function (old, idx) {
+      var s = document.createElement('script');
+      Array.prototype.slice.call(old.attributes).forEach(function (a) { s.setAttribute(a.name, a.value); });
+      s.textContent = old.textContent;
+      if (old === first || idx === 0) {
+        s.addEventListener('load', function () { setStatus('r-script', 'Yes, loaded', 'ok'); });
+        s.addEventListener('error', function () { setStatus('r-script', 'Failed to load (blocked or wrong URL)', 'bad'); });
+      }
+      document.body.appendChild(s);
+    });
+
+    // Watch for the widget's iframe
+    function report() {
+      var f = findIframe();
+      if (!f) return false;
+      setStatus('r-iframe', 'Yes (check it renders, not "refused to connect")', 'ok');
+      $('r-iframe-src').textContent = f.getAttribute('src') || f.src || '-';
+      return true;
+    }
+    var obs = new MutationObserver(function () { if (report()) obs.disconnect(); });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(function () {
+      if (!report()) setStatus('r-iframe', 'Not found after 6s', 'bad');
+    }, 6000);
+  }
+
+  var saved = load();
+  if (saved) render(saved);
+})();
+</script>
+
+</body>
+</html>
